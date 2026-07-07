@@ -1,5 +1,9 @@
 package be.brooklynfood.staff;
 
+import android.Manifest;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.Base64;
 import android.webkit.JavascriptInterface;
@@ -37,6 +41,21 @@ public class MainActivity extends BridgeActivity {
         // `window.NativePrinter` existe toujours. reload() ne re-déclenche pas
         // onCreate : pas de boucle possible.
         webView.post(webView::reload);
+
+        // Android 13+ : les notifications nécessitent une permission explicite.
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                   != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 42);
+        }
+
+        // Surveillance des commandes (notification + alarme même écran verrouillé).
+        Intent watch = new Intent(this, OrderWatchService.class);
+        if (Build.VERSION.SDK_INT >= 26) {
+            startForegroundService(watch);
+        } else {
+            startService(watch);
+        }
     }
 
     /** Pont d'impression appelé depuis le JavaScript de la page staff. */
