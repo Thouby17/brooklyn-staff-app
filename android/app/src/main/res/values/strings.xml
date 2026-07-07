@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Brooklyn Food Staff</string>
+    <string name="title_activity_main">Brooklyn Food Staff</string>
+    <string name="package_name">be.brooklynfood.staff</string>
+    <string name="custom_url_scheme">be.brooklynfood.staff</string>
+</resources>

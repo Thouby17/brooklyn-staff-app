@@ -1,0 +1,9 @@
+{
+  "appId": "be.brooklynfood.staff",
+  "appName": "Brooklyn Food Staff",
+  "webDir": "www",
+  "server": {
+    "url": "https://brooklynfood.be/staff",
+    "cleartext": false
+  }
+}
