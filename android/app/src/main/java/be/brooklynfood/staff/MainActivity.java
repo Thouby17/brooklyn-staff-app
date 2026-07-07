@@ -6,6 +6,7 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Base64;
+import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 
@@ -31,6 +32,11 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // Écran de cuisine : ne JAMAIS laisser l'écran s'éteindre tant que
+        // l'app est affichée (équivalent natif — et fiable — du Wake Lock web).
+        // Le bouton power permet toujours d'éteindre manuellement.
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         WebView webView = this.getBridge().getWebView();
         webView.addJavascriptInterface(new PrinterBridge(), "NativePrinter");

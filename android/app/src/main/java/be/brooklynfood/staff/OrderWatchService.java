@@ -8,6 +8,7 @@ import android.app.Service;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.media.AudioAttributes;
+import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
@@ -150,6 +151,20 @@ public class OrderWatchService extends Service {
     }
 
     private void notifyNewOrder(JSONObject o) {
+        // Volume « anti-bêtise » : si quelqu'un a baissé le volume d'alarme de
+        // la tablette, on le remonte à 80 % minimum avant de sonner — LE grand
+        // classique du « ça ne sonne plus » en restaurant.
+        try {
+            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+            int max = am.getStreamMaxVolume(AudioManager.STREAM_ALARM);
+            int floor = Math.round(max * 0.8f);
+            if (am.getStreamVolume(AudioManager.STREAM_ALARM) < floor) {
+                am.setStreamVolume(AudioManager.STREAM_ALARM, floor, 0);
+            }
+        } catch (Exception ignored) {
+            // Ne pas sonner est pire que ne pas régler le volume : on continue.
+        }
+
         int id = o.optInt("id", 0);
         int shown = o.isNull("dailyNumber") ? id : o.optInt("dailyNumber", id);
         String customer = o.optString("customerName", "");
