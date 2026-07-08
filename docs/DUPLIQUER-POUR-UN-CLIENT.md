@@ -107,26 +107,54 @@ d'abord. `--bg` : adapter à la charte du client si son logo ne ressort pas sur 
 
 `res/raw/alarm.wav` : **ne pas changer** (même alarme pour tous — choix utilisateur).
 
-### B4. Créer le repo GitHub et pousser
+### B4. Créer le repo GitHub, copier la clé de signature, pousser
 
 ```bash
-git init && git add -A && git commit -m "Coquille APK staff <Client> (base brooklyn-staff-app v1.3)"
+git init && git add -A && git commit -m "Coquille APK staff <Client> (base brooklyn-staff-app v1.4)"
 gh repo create Thouby17/<client>-staff-app --public --source . --push
 ```
 (Public comme brooklyn-staff-app : builds Actions illimités.)
+
+**⚠️ Obligatoire — copier les 3 secrets de signature sur le nouveau repo** (sinon le
+build échoue) : la clé permanente vit dans `C:\Users\thoub\APK-SIGNING-KEY\`
+(UNE clé pour tous les clients — voir son LISEZMOI) :
+
+```bash
+cd C:/Users/thoub/APK-SIGNING-KEY
+openssl base64 -A -in staff-apps-release.p12 | gh secret set KEYSTORE_BASE64 --repo Thouby17/<client>-staff-app
+gh secret set KEYSTORE_PASSWORD --repo Thouby17/<client>-staff-app --body "$(cat .password.txt)"
+gh secret set KEY_ALIAS --repo Thouby17/<client>-staff-app --body "staffapps"
+```
+
+### B5. Fichier de version pour la mise à jour in-app
+
+Depuis la v1.4, l'app vérifie au lancement `https://<domaine>/staff-app-version.json`
+et propose « Mettre à jour » si une version plus récente est publiée. Dans le dépôt
+**web** du client, créer `public/staff-app-version.json` :
+
+```json
+{ "versionCode": 2, "versionName": "1.4", "url": "https://<domaine>/staff-app.apk" }
+```
+
+**Règle absolue** : à chaque nouvelle version, committer l'APK (`public/staff-app.apk`)
+ET ce JSON (versionCode incrémenté, aligné sur build.gradle) **dans le même commit** —
+jamais le JSON avant l'APK, sinon les tablettes proposeraient une mise à jour vers
+l'ancien fichier.
 
 ---
 
 ## Volet C — Build, release, installation
 
 1. **Build cloud** (aucun outil Android en local) : le push déclenche
-   `.github/workflows/build-apk.yml` (Node 22 + JDK 21, ne pas toucher).
+   `.github/workflows/build-apk.yml` (Node 22 + JDK 21, ne pas toucher — il signe
+   avec la clé permanente via les secrets, voir B4).
    Suivre : `gh run watch <id> --repo Thouby17/<client>-staff-app --exit-status`
-   → récupérer : `gh run download <id> -D <dossier>` → `app-debug.apk`.
-2. **Release** : `gh release create v1.0` (titre « ⭐ v1.0 — ... », notes FR).
+   → récupérer : `gh run download <id> -D <dossier>` → `app-release.apk` (signé).
+2. **Release** : `gh release create v1.4` (titre « ⭐ v1.4 — ... », notes FR).
    Toujours garder UNE release de secours connue-bonne ; supprimer les versions
    intermédiaires jamais installées. À chaque nouvelle version : **incrémenter
-   `versionCode`** dans build.gradle.
+   `versionCode`** dans build.gradle ET dans `staff-app-version.json` (voir B5) —
+   c'est lui qui déclenche la proposition de mise à jour sur les tablettes.
 3. **Distribution = le site du client, PAS GitHub** (les liens GitHub bouclent sur
    certaines tablettes) : copier l'APK dans `<dépôt web client>/public/staff-app.apk`,
    commit + push, vérifier le déploiement **READY** sur Vercel. URL stable :
@@ -151,7 +179,7 @@ gh repo create Thouby17/<client>-staff-app --public --source . --push
 
 | Client | Repo | appId | APK | Version | Statut |
 |---|---|---|---|---|---|
-| Brooklyn Food | `Thouby17/brooklyn-staff-app` | `be.brooklynfood.staff` | brooklynfood.be/staff-app.apk | v1.3 | ✅ en service (secours : v1.0) |
+| Brooklyn Food | `Thouby17/brooklyn-staff-app` | `be.brooklynfood.staff` | brooklynfood.be/staff-app.apk | v1.4 | ✅ (secours : v1.3 ; migration v1.3→v1.4 = désinstaller une fois, signature changée) |
 | La Merguez Du Chef | — | — | — | — | à créer (volet A à porter d'abord) |
 | Krusty Squad | — | — | — | — | à créer (volet A à porter d'abord) |
 | Sun Set Burger | — | — | — | — | à créer (volet A à porter d'abord) |
