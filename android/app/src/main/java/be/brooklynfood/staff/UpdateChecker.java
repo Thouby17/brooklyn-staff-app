@@ -38,14 +38,21 @@ final class UpdateChecker {
     private static final String VERSION_URL = OrderWatchService.BASE_URL + "/staff-app-version.json";
     private static final int TIMEOUT_MS = 6000;
 
-    /** Une seule vérification par vie du processus (pas de re-popup à chaque rotation). */
-    private static boolean alreadyChecked = false;
+    /**
+     * Anti-rafale : au plus une vérification par minute. PAS « une fois par
+     * processus » : le service de notifications garde le processus vivant en
+     * permanence, donc « une fois par processus » signifierait « une seule fois
+     * jusqu'au redémarrage de la tablette » — le dialogue ne réapparaîtrait
+     * jamais en rouvrant l'app (bug attrapé par le test à la maison).
+     */
+    private static long lastCheckMs = 0;
 
     private UpdateChecker() {}
 
     static void checkAtLaunch(Activity activity) {
-        if (alreadyChecked) return;
-        alreadyChecked = true;
+        long now = System.currentTimeMillis();
+        if (now - lastCheckMs < 60_000) return;
+        lastCheckMs = now;
 
         Thread t = new Thread(() -> {
             try {

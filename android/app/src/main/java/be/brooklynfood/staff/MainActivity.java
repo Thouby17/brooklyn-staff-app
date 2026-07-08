@@ -41,6 +41,11 @@ public class MainActivity extends BridgeActivity {
         WebView webView = this.getBridge().getWebView();
         webView.addJavascriptInterface(new PrinterBridge(), "NativePrinter");
 
+        // App native = le son a le droit de démarrer sans geste de l'utilisateur
+        // (contrairement au navigateur). L'alarme web sonne donc dès la première
+        // commande et la bannière « Son bloqué, touchez pour activer » disparaît.
+        webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
+
         // L'interface JS n'est visible qu'au prochain chargement de page : on
         // recharge une fois à CHAQUE création de l'activité (lancement initial
         // mais aussi recréation par le système) pour garantir que
