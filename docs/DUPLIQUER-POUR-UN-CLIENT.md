@@ -179,7 +179,7 @@ l'ancien fichier.
 
 | Client | Repo | appId | APK | Version | Statut |
 |---|---|---|---|---|---|
-| Brooklyn Food | `Thouby17/brooklyn-staff-app` | `be.brooklynfood.staff` | brooklynfood.be/staff-app.apk | v1.4 | ✅ (secours : v1.3 ; migration v1.3→v1.4 = désinstaller une fois, signature changée) |
+| Brooklyn Food | `Thouby17/brooklyn-staff-app` | `be.brooklynfood.staff` | brooklynfood.be/staff-app.apk | v1.4.1 (versionCode 3) | ✅ chaîne de màj in-app validée en réel ; secours : v1.3 (staff-app-v13.apk) |
 | La Merguez Du Chef | — | — | — | — | à créer (volet A à porter d'abord) |
 | Krusty Squad | — | — | — | — | à créer (volet A à porter d'abord) |
 | Sun Set Burger | — | — | — | — | à créer (volet A à porter d'abord) |

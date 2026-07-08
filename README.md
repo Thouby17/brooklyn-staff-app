@@ -7,11 +7,18 @@ Application Android **coquille** (Capacitor 8) qui affiche le site staff
   `window.NativePrinter` — impression manuelle ET automatique à l'acceptation.
 - **Notifications sonores natives** (alarme même tablette verrouillée), service en
   arrière-plan avec redémarrage automatique après coupure de courant.
-- **Écran toujours allumé**, icône du client.
+- **Mise à jour intégrée** (v1.4+) : l'app lit `<site>/staff-app-version.json` à
+  chaque ouverture et propose « Mettre à jour » (téléchargement + installateur) —
+  possible grâce à la **clé de signature permanente** (secrets KEYSTORE_* ; clé
+  dans `C:\Users\thoub\APK-SIGNING-KEY\`, commune à tous les clients).
+- **Bouton Retour qui ne quitte jamais l'app** ; **son web autorisé sans toucher**
+  (plus de bannière « Son bloqué ») ; écran toujours allumé ; icône du client.
 
-Version en service : **v1.3** (release de secours : v1.0).
-Distribution : `https://brooklynfood.be/staff-app.apk` (pas les liens GitHub —
-ils bouclent sur la tablette).
+Version en service : **v1.4.1** (secours : v1.3, aussi sur
+`brooklynfood.be/staff-app-v13.apk`).
+Distribution : `https://brooklynfood.be/staff-app.apk` + `staff-app-version.json`
+(toujours mis à jour ENSEMBLE, même commit — pas les liens GitHub, ils bouclent
+sur la tablette).
 
 ## Règle d'or
 
