@@ -62,6 +62,25 @@ public class MainActivity extends BridgeActivity {
         } else {
             startService(watch);
         }
+
+        // Propose la mise à jour de l'app si une nouvelle version est publiée
+        // sur le site (staff-app-version.json). Silencieux si pas de réseau.
+        UpdateChecker.checkAtLaunch(this);
+    }
+
+    /**
+     * Bouton Retour : navigation web uniquement, ne quitte JAMAIS l'app.
+     * Écran de cuisine = une main pressée peut appuyer par erreur ; sortir de
+     * l'app couperait l'affichage des commandes. (Pour quitter volontairement :
+     * bouton Accueil, ou geste système.)
+     */
+    @Override
+    public void onBackPressed() {
+        WebView webView = this.getBridge().getWebView();
+        if (webView.canGoBack()) {
+            webView.goBack();
+        }
+        // sinon : rien — on reste sur l'écran des commandes.
     }
 
     /** Pont d'impression appelé depuis le JavaScript de la page staff. */

@@ -44,7 +44,9 @@ import java.util.HashSet;
  */
 public class OrderWatchService extends Service {
 
-    private static final String BASE_URL = "https://brooklynfood.be";
+    // Package-private : aussi utilisée par UpdateChecker (une seule URL à
+    // changer lors de la duplication pour un autre client).
+    static final String BASE_URL = "https://brooklynfood.be";
     private static final long POLL_MS = 20_000;
     private static final int SERVICE_NOTIF_ID = 1;
     private static final String CH_SERVICE = "service_v1"; // notif permanente discrète
