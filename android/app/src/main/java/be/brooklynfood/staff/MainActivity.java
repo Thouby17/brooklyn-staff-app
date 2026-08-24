@@ -5,29 +5,45 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
-import android.util.Base64;
 import android.view.WindowManager;
-import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 
 import com.getcapacitor.BridgeActivity;
 
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
-import java.net.Socket;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * App staff Brooklyn : coquille Capacitor + pont d'impression réseau.
+ * App staff Brooklyn Food : coquille Capacitor + pont d'impression.
  *
- * On expose à la page web un objet JS `window.NativePrinter` avec une méthode
- * `print(host, port, base64)` qui ouvre une connexion TCP vers l'imprimante
- * (ESC/POS, port 9100) et lui envoie les octets du ticket. Le site staff
- * détecte la présence de `window.NativePrinter` et, si une IP est configurée,
- * imprime directement — sinon il retombe sur l'impression navigateur habituelle.
+ * On expose à la page web un objet JS `window.NativePrinter` ({@link PrinterBridge})
+ * qui sait imprimer par RÉSEAU (port 9100), BLUETOOTH (SPP) ou USB, et aider au
+ * réglage (recherche des imprimantes du réseau, identification du fabricant).
+ * Le site staff détecte la présence de `window.NativePrinter` et, si une
+ * imprimante est configurée, imprime directement — sinon il retombe sur
+ * l'impression navigateur habituelle.
  */
 public class MainActivity extends BridgeActivity {
+
+    /**
+     * Vrai quand l'écran staff est au premier plan (app visible, écran allumé).
+     * Lu par {@link OrderWatchService} : quand l'app est devant, c'est l'alarme
+     * du SITE qui sonne (et se répète), donc le service natif se tait pour ne
+     * pas doubler l'alarme. Le natif ne ré-alerte que écran éteint / en fond.
+     */
+    public static volatile boolean isForeground = false;
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        isForeground = true;
+    }
+
+    @Override
+    public void onPause() {
+        isForeground = false;
+        super.onPause();
+    }
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -39,7 +55,7 @@ public class MainActivity extends BridgeActivity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         WebView webView = this.getBridge().getWebView();
-        webView.addJavascriptInterface(new PrinterBridge(), "NativePrinter");
+        webView.addJavascriptInterface(new PrinterBridge(this), "NativePrinter");
 
         // App native = le son a le droit de démarrer sans geste de l'utilisateur
         // (contrairement au navigateur). L'alarme web sonne donc dès la première
@@ -53,12 +69,7 @@ public class MainActivity extends BridgeActivity {
         // onCreate : pas de boucle possible.
         webView.post(webView::reload);
 
-        // Android 13+ : les notifications nécessitent une permission explicite.
-        if (Build.VERSION.SDK_INT >= 33
-                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
-                   != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 42);
-        }
+        requestRuntimePermissions();
 
         // Surveillance des commandes (notification + alarme même écran verrouillé).
         Intent watch = new Intent(this, OrderWatchService.class);
@@ -74,6 +85,39 @@ public class MainActivity extends BridgeActivity {
     }
 
     /**
+     * Permissions demandées au lancement, en UN SEUL dialogue.
+     *
+     * - POST_NOTIFICATIONS (Android 13+) : sans elle, aucune alerte de commande.
+     * - BLUETOOTH_CONNECT (Android 12+)  : sans elle, la liste des imprimantes
+     *   Bluetooth revient VIDE, sans erreur explicite — le staff croirait que son
+     *   imprimante n'est pas appairée. On la demande donc dès le départ, même si
+     *   la plupart des restaurants impriment en réseau.
+     *
+     * On ne demande QUE ce qui manque : re-demander une permission déjà accordée
+     * ne fait rien, mais autant garder le dialogue minimal.
+     */
+    private void requestRuntimePermissions() {
+        List<String> needed = new ArrayList<>();
+
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                   != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.POST_NOTIFICATIONS);
+        }
+        // Android 12+ : le Bluetooth est passé en permission d'exécution.
+        // Avant, les anciennes permissions du manifest suffisaient.
+        if (Build.VERSION.SDK_INT >= 31
+                && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
+                   != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.BLUETOOTH_CONNECT);
+        }
+
+        if (!needed.isEmpty()) {
+            requestPermissions(needed.toArray(new String[0]), 42);
+        }
+    }
+
+    /**
      * Bouton Retour : navigation web uniquement, ne quitte JAMAIS l'app.
      * Écran de cuisine = une main pressée peut appuyer par erreur ; sortir de
      * l'app couperait l'affichage des commandes. (Pour quitter volontairement :
@@ -86,60 +130,5 @@ public class MainActivity extends BridgeActivity {
             webView.goBack();
         }
         // sinon : rien — on reste sur l'écran des commandes.
-    }
-
-    /** Pont d'impression appelé depuis le JavaScript de la page staff. */
-    public static class PrinterBridge {
-        /**
-         * Envoie des octets ESC/POS à une imprimante réseau.
-         *
-         * Le réseau est fait dans un thread dédié (jamais sur un thread
-         * surveillé par StrictMode — certains constructeurs l'appliquent au-delà
-         * du thread principal) ; on attend le résultat avec un timeout global.
-         *
-         * @param host IP de l'imprimante (ex. "192.168.1.47")
-         * @param port port TCP (9100 en standard)
-         * @param base64Data ticket encodé en base64
-         * @return "ok" si envoyé, sinon "error:<détail>"
-         */
-        @JavascriptInterface
-        public String print(String host, int port, String base64Data) {
-            final String[] result = new String[1];
-            final CountDownLatch done = new CountDownLatch(1);
-
-            Thread worker = new Thread(() -> {
-                Socket socket = null;
-                try {
-                    byte[] data = Base64.decode(base64Data, Base64.DEFAULT);
-                    socket = new Socket();
-                    socket.connect(new InetSocketAddress(host, port), 4000);
-                    socket.setSoTimeout(4000);
-                    OutputStream out = socket.getOutputStream();
-                    out.write(data);
-                    out.flush();
-                    result[0] = "ok";
-                } catch (Exception e) {
-                    String msg = e.getMessage();
-                    result[0] = "error:" + (msg != null ? msg : e.getClass().getSimpleName());
-                } finally {
-                    if (socket != null) {
-                        try { socket.close(); } catch (Exception ignored) {}
-                    }
-                }
-                done.countDown();
-            });
-            worker.setDaemon(true);
-            worker.start();
-
-            try {
-                if (!done.await(8, TimeUnit.SECONDS)) {
-                    return "error:délai dépassé — imprimante injoignable (IP ? même réseau ?)";
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return "error:interrompu";
-            }
-            return result[0] != null ? result[0] : "error:inconnu";
-        }
     }
 }

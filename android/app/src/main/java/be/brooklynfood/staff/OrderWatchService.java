@@ -14,6 +14,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
+import android.graphics.BitmapFactory;
 import android.webkit.CookieManager;
 
 import androidx.core.app.NotificationCompat;
@@ -55,6 +56,9 @@ public class OrderWatchService extends Service {
     private HandlerThread thread;
     private Handler handler;
     private final HashSet<Integer> seenIds = new HashSet<>();
+    // Commandes encore "pending" à ré-alerter à chaque tour tant qu'elles ne
+    // sont pas prises en charge (acceptées / refusées).
+    private final HashSet<Integer> alerting = new HashSet<>();
     private boolean baselined = false;
 
     @Override
@@ -74,7 +78,7 @@ public class OrderWatchService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         NotificationCompat.Builder b = new NotificationCompat.Builder(this, CH_SERVICE)
-                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setSmallIcon(R.drawable.ic_stat_order)
                 .setContentTitle("Brooklyn Food Staff")
                 .setContentText("Surveillance des commandes active")
                 .setOngoing(true)
@@ -133,22 +137,71 @@ public class OrderWatchService extends Service {
             }
             JSONArray arr = new JSONArray(sb.toString());
             boolean first = !baselined;
+
+            // Commandes encore "pending" vues à CE tour (pour arrêter d'alerter
+            // celles qui ont disparu du flux : terminées / supprimées).
+            HashSet<Integer> stillPending = new HashSet<>();
+
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject o = arr.getJSONObject(i);
                 int id = o.getInt("id");
-                if (seenIds.contains(id)) continue;
-                seenIds.add(id);
-                if (!first && "pending".equals(o.optString("status"))) {
-                    notifyNewOrder(o);
+                boolean pending = "pending".equals(o.optString("status"));
+
+                if (first) {
+                    // Photo de départ : on mémorise sans alerter (pas de rafale
+                    // au démarrage / à la reconnexion).
+                    seenIds.add(id);
+                    continue;
+                }
+
+                if (pending) {
+                    stillPending.add(id);
+                    if (!seenIds.contains(id)) { // nouvelle commande
+                        seenIds.add(id);
+                        alerting.add(id);
+                    }
+                    // Ré-alerte tant que la commande n'est pas prise en charge —
+                    // MAIS seulement écran éteint / app pas au premier plan : quand
+                    // l'app est ouverte, l'alarme du SITE prend le relais (elle se
+                    // répète déjà), on évite ainsi la double alarme.
+                    if (alerting.contains(id) && !MainActivity.isForeground) {
+                        notifyNewOrder(o);
+                    }
+                } else {
+                    // Acceptée / refusée : on arrête d'alerter et on retire la notif.
+                    seenIds.add(id);
+                    if (alerting.remove(id)) cancel(id);
                 }
             }
+
             baselined = true;
+
+            // Commandes qui ont quitté le flux sans repasser en "non-pending"
+            // (ex. purge côté serveur) : on cesse de les alerter.
+            if (!first) {
+                java.util.Iterator<Integer> it = alerting.iterator();
+                while (it.hasNext()) {
+                    int id = it.next();
+                    if (!stillPending.contains(id)) { it.remove(); cancel(id); }
+                }
+            }
+
             if (seenIds.size() > 2000) { // garde-fou mémoire (kiosque qui tourne des semaines)
                 seenIds.clear();
+                alerting.clear();
                 baselined = false; // re-baseline au prochain poll, sans alerter
             }
         } finally {
             c.disconnect();
+        }
+    }
+
+    /** Retire la notification d'alarme d'une commande (prise en charge / disparue). */
+    private void cancel(int id) {
+        try {
+            NotificationManagerCompat.from(this).cancel(id);
+        } catch (Exception ignored) {
+            // rien à faire : la notif disparaîtra au prochain nettoyage système
         }
     }
 
@@ -177,8 +230,13 @@ public class OrderWatchService extends Service {
                 this, id, open,
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
+        // Identité de l'app dans la notification : cloche monochrome en barre de
+        // statut (norme Android), logo Brooklyn en grand, accent rouge de marque —
+        // avant, le dessin par défaut du modèle rendait la notif « anonyme ».
         NotificationCompat.Builder b = new NotificationCompat.Builder(this, CH_ORDERS)
-                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setSmallIcon(R.drawable.ic_stat_order)
+                .setLargeIcon(BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher))
+                .setColor(0xFFB31942)
                 .setContentTitle("🍔 Nouvelle commande #" + shown)
                 .setContentText(customer)
                 .setPriority(NotificationCompat.PRIORITY_MAX)
