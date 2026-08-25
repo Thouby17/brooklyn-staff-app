@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  POLITIQUE RÉSEAU DE L'APP (v1.6).
+
+  ⚠️⚠️ POURQUOI AUTORISER LE NON CHIFFRÉ. L'identification automatique de
+  l'imprimante (`PrinterBridge.probe`) lit la page de configuration embarquée de
+  la machine, qui n'existe qu'en `http://` — aucune imprimante de comptoir ne
+  sert de HTTPS. Or depuis Android 9, le trafic non chiffré est INTERDIT par
+  défaut : `probe()` échouait donc systématiquement, et chaque appui sur une
+  imprimante trouvée sortait une erreur technique en anglais.
+
+  ⛔ CE QUE ÇA N'OUVRE PAS. Le site du restaurant reste chargé en HTTPS : c'est
+  l'adresse figée dans `capacitor.config.json`, avec `"cleartext": false`. Cette
+  autorisation ne sert donc qu'aux appareils du réseau local.
+
+  ⭐ Et la vraie protection n'est pas ici : elle est dans `PrinterBridge`, qui
+  REFUSE désormais toute adresse hors des plages privées. Une page web hostile
+  chargée dans la WebView ne peut donc pas se servir du pont pour aller lire
+  une adresse publique. *Un réglage large se compense par un contrôle étroit
+  au bon endroit, pas par un réglage étroit au mauvais.*
+
+  ⚠️ Android ne sait PAS exprimer « les plages privées » ici : sa configuration
+  n'accepte que des noms de domaine ou des adresses EXACTES, jamais des plages.
+  C'est la raison — technique, pas paresseuse — pour laquelle l'autorisation est
+  générale et le filtrage se fait en Java.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

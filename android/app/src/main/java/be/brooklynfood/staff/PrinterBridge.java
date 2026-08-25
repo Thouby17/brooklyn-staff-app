@@ -82,6 +82,7 @@ public class PrinterBridge {
      */
     @JavascriptInterface
     public String print(String host, int port, String base64Data) {
+        if (!estReseauLocal(host)) return refusHorsReseauLocal(host);
         return runWithTimeout(8, result -> {
             Socket socket = null;
             try {
@@ -303,6 +304,7 @@ public class PrinterBridge {
         if (!base.matches("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}")) {
             return "error:sous-réseau invalide (attendu : 192.168.1)";
         }
+        if (!estReseauLocal(base)) return refusHorsReseauLocal(base);
         final List<String> found = new ArrayList<>();
         // 40 threads : tester 254 adresses une par une prendrait des minutes.
         ExecutorService pool = Executors.newFixedThreadPool(40);
@@ -348,6 +350,7 @@ public class PrinterBridge {
      */
     @JavascriptInterface
     public String probe(String host) {
+        if (!estReseauLocal(host)) return refusHorsReseauLocal(host);
         return runWithTimeout(8, result -> {
             HttpURLConnection conn = null;
             try {
@@ -462,5 +465,88 @@ public class PrinterBridge {
                     && ep.getDirection() == UsbConstants.USB_DIR_OUT) return ep;
         }
         return null;
+    }
+
+    // ─────────────────── AJOUTS v1.6 ───────────────────
+
+    /**
+     * ⭐⭐ L'ADRESSE DE LA TABLETTE ELLE-MÊME.
+     *
+     * ⚠️⚠️ CE QUE ÇA RÉPARE, ET C'ÉTAIT CIRCULAIRE. L'écran de réglage déduisait
+     * le sous-réseau à balayer… de l'adresse d'imprimante DÉJÀ SAISIE. Or on
+     * lance une recherche précisément parce qu'on ne connaît pas cette adresse :
+     * le champ est vide, et le code retombait sur « 192.168.1 » écrit en dur.
+     * Chez un restaurant en 192.168.0.x ou en 10.0.0.x, la recherche ne trouvait
+     * donc JAMAIS rien, et annonçait poliment « aucune imprimante trouvée ».
+     *
+     * ⇒ Le sous-réseau se déduit désormais de la tablette, qui est forcément sur
+     * le même réseau que l'imprimante.
+     *
+     * @return l'IPv4 privée de la tablette, en JSON ("192.168.1.23"), ou une erreur
+     */
+    @JavascriptInterface
+    public String localIp() {
+        try {
+            java.util.Enumeration<java.net.NetworkInterface> ifaces =
+                    java.net.NetworkInterface.getNetworkInterfaces();
+            while (ifaces != null && ifaces.hasMoreElements()) {
+                java.net.NetworkInterface ni = ifaces.nextElement();
+                if (!ni.isUp() || ni.isLoopback()) continue;
+                java.util.Enumeration<java.net.InetAddress> addrs = ni.getInetAddresses();
+                while (addrs.hasMoreElements()) {
+                    java.net.InetAddress a = addrs.nextElement();
+                    if (a instanceof java.net.Inet4Address && a.isSiteLocalAddress()) {
+                        return "\"" + esc(a.getHostAddress()) + "\"";
+                    }
+                }
+            }
+            return "error:la tablette n'a pas d'adresse réseau (Wi-Fi coupé ?)";
+        } catch (Exception e) {
+            return "error:" + msgOf(e);
+        }
+    }
+
+    /**
+     * ⛔ LE PONT NE SORT PAS DU RÉSEAU LOCAL.
+     *
+     * ⚠️ POURQUOI (relecture de sécurité du 25/08). Ce pont est exposé en
+     * JavaScript à la page chargée dans la WebView. Sans ce contrôle, un script
+     * hostile — une faille du site, une publicité tierce, un lien détourné —
+     * pourrait s'en servir pour écrire sur N'IMPORTE QUELLE adresse et en relire
+     * le contenu, depuis le réseau du restaurant. Le risque est théorique
+     * aujourd'hui (le site ne charge aucun script tiers), mais il coûte dix
+     * lignes à fermer, et il devient réel au premier embarquement extérieur.
+     *
+     * ⭐ Corollaire assumé : une imprimante joignable seulement par une adresse
+     * publique ne fonctionnera pas. Ça n'existe pas dans un restaurant, et le
+     * refus est explicite plutôt que silencieux.
+     *
+     * @param hote une adresse complète ("192.168.1.47") ou un préfixe ("192.168.1")
+     */
+    private static boolean estReseauLocal(String hote) {
+        if (hote == null) return false;
+        String h = hote.trim();
+        if (h.matches("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}")) h = h + ".1"; // préfixe de balayage
+        if (!h.matches("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}")) return false;
+        String[] o = h.split("\\.");
+        int a, b;
+        try {
+            a = Integer.parseInt(o[0]);
+            b = Integer.parseInt(o[1]);
+            for (String p : o) if (Integer.parseInt(p) > 255) return false;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+        if (a == 10) return true;                        // 10.0.0.0/8
+        if (a == 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+        if (a == 192 && b == 168) return true;           // 192.168.0.0/16
+        if (a == 169 && b == 254) return true;           // 169.254.0.0/16 (lien local)
+        return false;
+    }
+
+    /** Le refus, écrit pour le staff et pas pour un journal technique. */
+    private static String refusHorsReseauLocal(String hote) {
+        return "error:adresse refusée (" + esc(String.valueOf(hote))
+                + ") — seules les imprimantes du réseau local sont acceptées";
     }
 }

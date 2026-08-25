@@ -4,6 +4,7 @@
   "webDir": "www",
   "server": {
     "url": "https://brooklynfood.be/staff",
-    "cleartext": false
+    "cleartext": false,
+    "errorPath": "erreur.html"
   }
 }

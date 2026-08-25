@@ -61,6 +61,17 @@ final class UpdateChecker {
                 int remoteCode = info.optInt("versionCode", 0);
                 String remoteName = info.optString("versionName", "?");
                 String apkUrl = info.optString("url", OrderWatchService.BASE_URL + "/staff-app.apk");
+                // ⛔⛔ L'ADRESSE VIENT DU SERVEUR : ON NE LA SUIT PAS LES YEUX FERMÉS.
+                // Elle décide de ce que la tablette va TÉLÉCHARGER PUIS INSTALLER.
+                // Si le JSON était un jour altéré — serveur compromis, DNS détourné,
+                // Wi-Fi hostile — cette ligne installerait l'APK d'un inconnu, avec
+                // l'accord de l'utilisateur qui croirait mettre à jour son app.
+                // ⭐ Deux lignes suffisent à fermer : l'APK ne peut venir que du
+                // domaine du restaurant, celui qui est figé dans le code.
+                if (!apkUrl.startsWith(OrderWatchService.BASE_URL + "/")) {
+                    Log.w(TAG, "Mise a jour refusee : adresse hors domaine (" + apkUrl + ")");
+                    return;
+                }
                 if (remoteCode <= BuildConfig.VERSION_CODE) return; // à jour
 
                 activity.runOnUiThread(() -> {
@@ -89,7 +100,17 @@ final class UpdateChecker {
             conn = (HttpURLConnection) new URL(VERSION_URL).openConnection();
             conn.setConnectTimeout(TIMEOUT_MS);
             conn.setReadTimeout(TIMEOUT_MS);
-            if (conn.getResponseCode() != 200) return null; // pas (encore) publié : silencieux
+            if (conn.getResponseCode() != 200) {
+                // ⚠️ Silencieux pour l'UTILISATEUR — c'est voulu, on ne l'embête
+                // pas avec un problème qu'il ne peut pas résoudre. Mais PLUS
+                // silencieux pour le technicien : chez un autre client du parc,
+                // cette branche a masqué une chaîne de mise à jour morte pendant
+                // des semaines. ⭐ Une panne muette pour tout le monde n'est pas
+                // une panne discrète, c'est une panne invisible.
+                Log.w(TAG, "staff-app-version.json a repondu " + conn.getResponseCode()
+                        + " — la tablette ne verra aucune mise a jour");
+                return null;
+            }
             StringBuilder sb = new StringBuilder();
             try (BufferedReader r = new BufferedReader(new InputStreamReader(conn.getInputStream()))) {
                 String line;
@@ -122,11 +143,22 @@ final class UpdateChecker {
                 if (conn.getResponseCode() != 200) {
                     error = "Le serveur a répondu " + conn.getResponseCode();
                 } else {
+                    long annonce = conn.getContentLengthLong();
+                    long ecrits = 0;
                     try (InputStream in = conn.getInputStream();
                          FileOutputStream out = new FileOutputStream(apk)) {
                         byte[] buf = new byte[64 * 1024];
                         int n;
-                        while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                        while ((n = in.read(buf)) > 0) { out.write(buf, 0, n); ecrits += n; }
+                    }
+                    // ⚠️ UN TÉLÉCHARGEMENT COUPÉ NE LÈVE PAS D'EXCEPTION : le flux
+                    // se termine simplement plus tôt. Sans ce contrôle, un APK
+                    // tronqué partait à l'installateur Android, qui affichait
+                    // « Échec de l'analyse du package » — un message que personne
+                    // ne relie à un Wi-Fi qui a hoqueté.
+                    if (annonce > 0 && ecrits != annonce) {
+                        error = "téléchargement incomplet (" + ecrits + " sur " + annonce + " octets)";
+                        apk.delete();
                     }
                 }
             } catch (Exception e) {

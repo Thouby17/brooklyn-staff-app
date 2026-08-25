@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Connexion perdue</title>
+<!--
+  PAGE AFFICHÉE QUAND LE SITE EST INJOIGNABLE (Capacitor `server.errorPath`).
+
+  ⚠️⚠️ POURQUOI ELLE EXISTE (v1.6). Sans elle, une coupure Wi-Fi au lancement
+  laissait la page d'erreur d'Android : un écran gris, en anglais, DÉFINITIF.
+  Le Wi-Fi revenait, la tablette restait figée — il fallait fermer et rouvrir
+  l'app, ce que personne ne devine en plein service.
+
+  ⛔ AUCUNE RESSOURCE EXTERNE ICI. Ni police web, ni image distante : cette page
+  ne s'affiche QUE lorsqu'il n'y a pas de réseau. Une police Google la rendrait
+  nue au moment précis où elle doit rassurer.
+-->
+<style>
+  :root {
+    --rouge: #B31942;      /* rouge Old Glory — identité de Brooklyn Food */
+    --marine: #0A3161;
+    --fond: #f6f5f2;
+    --encre: #211e18;
+    --doux: #4e473a;
+    --ligne: #ded9ce;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--fond);
+    color: var(--encre);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    padding: 6vmin; text-align: center;
+    -webkit-user-select: none; user-select: none;
+  }
+  .carte {
+    background: #fff; border: 1px solid var(--ligne); border-top: 6px solid var(--rouge);
+    border-radius: 10px; padding: 7vmin 6vmin; max-width: 34rem; width: 100%;
+    box-shadow: 0 2px 18px rgba(33,30,24,.08);
+  }
+  .rond {
+    width: 4.5rem; height: 4.5rem; margin: 0 auto 1.4rem;
+    border-radius: 50%; background: rgba(179,25,66,.09);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 2.2rem; line-height: 1;
+  }
+  h1 { font-size: clamp(1.5rem, 5vw, 2.1rem); margin: 0 0 .6rem; color: var(--marine); }
+  p { font-size: clamp(1rem, 3.2vw, 1.15rem); line-height: 1.55; color: var(--doux); margin: 0 0 1rem; }
+  .liste { text-align: left; display: inline-block; margin: .2rem 0 1.4rem; padding-left: 1.1rem; }
+  .liste li { margin: .35rem 0; color: var(--doux); }
+  button {
+    font: inherit; font-weight: 600; font-size: 1.1rem;
+    background: var(--rouge); color: #fff; border: 0; border-radius: 8px;
+    padding: 1rem 2.2rem; min-height: 3.4rem; cursor: pointer; width: 100%;
+  }
+  button:active { background: #8f1334; }
+  .compte { margin-top: 1.1rem; font-size: .95rem; color: var(--doux); font-variant-numeric: tabular-nums; }
+  .pastille {
+    display: inline-block; width: .55rem; height: .55rem; border-radius: 50%;
+    background: var(--rouge); margin-right: .45rem; vertical-align: middle;
+    animation: battement 1.4s ease-in-out infinite;
+  }
+  @keyframes battement { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
+  @media (prefers-reduced-motion: reduce) { .pastille { animation: none } }
+</style>
+</head>
+<body>
+  <div class="carte">
+    <div class="rond" aria-hidden="true">📡</div>
+    <h1>Connexion perdue</h1>
+    <p>La tablette n'arrive pas à joindre le site du restaurant.<br>
+       <strong>Les commandes n'arrivent pas pour l'instant.</strong></p>
+    <ul class="liste">
+      <li>Vérifiez que le Wi-Fi est allumé</li>
+      <li>Vérifiez que la box est allumée</li>
+      <li>Si tout semble normal, patientez : ça revient souvent seul</li>
+    </ul>
+    <button id="reessayer" type="button">Réessayer maintenant</button>
+    <p class="compte"><span class="pastille"></span><span id="compte">Nouvel essai dans 5 s</span></p>
+  </div>
+
+<script>
+  // ⭐ RÉESSAI AUTOMATIQUE. Le personnel n'a rien à faire : dès que le réseau
+  // revient, l'écran des commandes se remet tout seul. Le compte à rebours
+  // existe pour qu'on VOIE que la tablette travaille — un écran immobile est
+  // lu comme un écran planté, et quelqu'un finit par éteindre la tablette.
+  var DELAI = 5;
+  var reste = DELAI;
+  var compte = document.getElementById("compte");
+
+  function reessayer() { location.reload(); }
+  document.getElementById("reessayer").addEventListener("click", reessayer);
+
+  setInterval(function () {
+    reste--;
+    if (reste <= 0) { compte.textContent = "Nouvel essai…"; reessayer(); return; }
+    compte.textContent = "Nouvel essai dans " + reste + " s";
+  }, 1000);
+
+  // Si Android nous dit que le réseau est revenu, on n'attend pas la fin du
+  // compte à rebours.
+  window.addEventListener("online", reessayer);
+</script>
+</body>
+</html>

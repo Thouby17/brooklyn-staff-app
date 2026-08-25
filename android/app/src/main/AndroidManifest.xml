@@ -2,7 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:enableOnBackInvokedCallback="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -58,6 +60,22 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- ⭐⭐ VEILLE PARTIELLE (v1.6). Sans elle, la surveillance des commandes
+         s'ARRÊTE quand l'écran s'éteint : le minuteur du service compte en temps
+         de fonctionnement du processeur, et ce compteur n'avance pas pendant que
+         la tablette dort. « Sonner même écran verrouillé » était donc une
+         promesse fausse. Coût : de la batterie — sans objet sur une tablette de
+         cuisine branchée en permanence. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- ⭐ EXEMPTION D'ÉCONOMIE DE BATTERIE (v1.6). Les ROM bon marché
+         (Logicom, MediaTek…) tuent les services en arrière-plan au bout de
+         quelques heures, sans rien dire. L'app DEMANDE l'exemption au premier
+         lancement ; le staff peut refuser, mais il aura vu la question.
+         ⚠️ Interdite sur le Play Store — sans objet ici, l'app s'installe
+         directement depuis le site du restaurant. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- ⭐ IMPRESSION BLUETOOTH (alignée sur la coquille de référence le
          25/08/2026). Sans elles,

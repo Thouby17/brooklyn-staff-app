@@ -37,6 +37,18 @@ public class MainActivity extends BridgeActivity {
     public void onResume() {
         super.onResume();
         isForeground = true;
+
+        // ⭐⭐ LE CONTRÔLE DE MISE À JOUR AUSSI ICI, ET C'EST DÉCISIF (v1.6).
+        //
+        // ⚠️ Il n'avait lieu qu'à `onCreate`. Or cette activité est en
+        // `singleTask`, le bouton Retour ne la quitte jamais, l'écran ne s'éteint
+        // pas et le service est `START_STICKY` : elle est créée UNE fois, au
+        // démarrage de la tablette, puis vit des semaines. Une correction
+        // urgente n'atteignait donc la cuisine qu'à la prochaine coupure de
+        // courant — autant dire jamais.
+        // ⭐ `checkAtLaunch` porte déjà son propre anti-rafale (60 s) : l'appeler
+        // à chaque retour sur l'app ne provoque pas de dialogue répété.
+        UpdateChecker.checkAtLaunch(this);
     }
 
     @Override
@@ -70,6 +82,7 @@ public class MainActivity extends BridgeActivity {
         webView.post(webView::reload);
 
         requestRuntimePermissions();
+        demanderExemptionBatterie();
 
         // Surveillance des commandes (notification + alarme même écran verrouillé).
         Intent watch = new Intent(this, OrderWatchService.class);
@@ -114,6 +127,57 @@ public class MainActivity extends BridgeActivity {
 
         if (!needed.isEmpty()) {
             requestPermissions(needed.toArray(new String[0]), 42);
+        }
+    }
+
+    /**
+     * ⭐⭐ SI LE STAFF REFUSE LES NOTIFICATIONS, IL DOIT LE SAVOIR (v1.6).
+     *
+     * ⚠️ Avant, un refus était total et silencieux : la tablette n'alertait plus
+     * jamais, sans le moindre signe. Personne ne relie « j'ai touché Refuser il
+     * y a trois semaines » à « on ne voit plus les commandes ».
+     * ⭐ On ne peut pas forcer une permission — mais on peut refuser de faire
+     * comme si de rien n'était.
+     */
+    @Override
+    public void onRequestPermissionsResult(int code, String[] permissions, int[] resultats) {
+        super.onRequestPermissionsResult(code, permissions, resultats);
+        if (code != 42) return;
+        for (int i = 0; i < permissions.length; i++) {
+            boolean refuse = resultats.length > i && resultats[i] != PackageManager.PERMISSION_GRANTED;
+            if (refuse && Manifest.permission.POST_NOTIFICATIONS.equals(permissions[i])) {
+                android.widget.Toast.makeText(this,
+                        "⚠️ Sans les notifications, la tablette ne sonnera PAS quand une "
+                        + "commande arrive. À réactiver dans Réglages → Applications.",
+                        android.widget.Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
+    /**
+     * ⭐ DEMANDER À ÊTRE ÉPARGNÉ PAR L'ÉCONOMIE DE BATTERIE.
+     *
+     * ⚠️ POURQUOI. Les ROM bon marché (Logicom, MediaTek…) tuent les services en
+     * arrière-plan au bout de quelques heures — sans rien dire, évidemment. Une
+     * tablette de cuisine allumée depuis le matin cesse alors de surveiller les
+     * commandes en milieu d'après-midi, et personne ne comprend pourquoi.
+     * ⚠️ On ne DEMANDE qu'une fois par lancement et seulement si l'exemption
+     * n'est pas déjà accordée : un dialogue qui revient sans cesse finit par
+     * être refusé par réflexe.
+     * ⚠️ Le staff peut refuser — c'est son droit, et l'app continue. Mais il
+     * aura vu la question, ce qui n'était pas le cas avant.
+     */
+    private void demanderExemptionBatterie() {
+        if (Build.VERSION.SDK_INT < 23) return; // la notion n'existe pas avant Android 6
+        try {
+            android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+            if (pm != null && pm.isIgnoringBatteryOptimizations(getPackageName())) return;
+            Intent i = new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+            i.setData(android.net.Uri.parse("package:" + getPackageName()));
+            startActivity(i);
+        } catch (Exception ignored) {
+            // Certaines ROM n'exposent pas cet écran : on n'insiste pas, et
+            // surtout on ne fait pas planter le lancement de l'app pour ça.
         }
     }
 
