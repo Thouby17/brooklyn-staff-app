@@ -14,7 +14,7 @@ Imprimante, ni impression auto, ni journal d'appareils.
 
 | Volet | Où | Contenu |
 |---|---|---|
-| A — Web | Dépôt web du client (`C:\Users\thoub\<Client> Web App`) | détection du pont natif, ESC/POS, réglages imprimante, impression auto, logs appareils |
+| A — Web | Dépôt web du client (`F:\Claude\restaurants\clients\<Client>\<Client> Web App`) | détection du pont natif, ESC/POS, réglages imprimante, impression auto, logs appareils |
 | B — Coquille | Nouveau repo `<client>-staff-app` (copie de celui-ci) | WebView plein écran, pont d'impression TCP, notifications natives, icône client |
 
 **Fonctionnalités attendues de l'APK fini** (parité avec Brooklyn v1.3) :
@@ -28,11 +28,14 @@ courant · icône = logo du client · journal technique consultable à distance
 
 ## Volet A — Prérequis côté site web du client
 
-⚠️ **État au 2026-07-08 : seul Brooklyn a ce support.** Pour un autre client, porter
-d'abord ces éléments (idéalement Brooklyn → Template, puis Template → client, selon
-les règles de propagation de `restaurant-apps-method` : conversion `neutral→stone`
-pour Merguez/Krusty, fins de ligne CRLF, StaffBoard Merguez sur-mesure à éditer à
-la main).
+⚠️ **État au 2026-07-08 : Brooklyn + le TEMPLATE ont ce support** (porté au template
+le 2026-07-08, commit `b007386` — modèle `DeviceLog` additif, `tsc` vert). Tout
+NOUVEAU client cloné du template l'aura d'office. Pour les clients EXISTANTS (Krusty,
+Merguez, Sun Set), porter depuis le Template : `git fetch template` + `git cherry-pick
+b007386`, en adaptant `neutral→stone` pour Merguez/Krusty (Sun Set est en neutral),
+fins de ligne CRLF, StaffBoard Merguez sur-mesure à éditer à la main. ⚠️ Chaque client
+adoptant le support doit faire un **`prisma db push` du modèle `DeviceLog`** sur SA base
+Neon (additif) — vérifier l'hôte Neon AVANT (voir `RESTAURANT-APPS-SYSTEM.md` §4bis).
 
 **Fichiers à porter depuis `Web App Brooklyn Food`** :
 
@@ -67,8 +70,8 @@ puis `npx tsc --noEmit`. Détail des protocoles : skill `restaurant-apps-method`
 ### B1. Copier ce repo (sans l'historique ni les builds)
 
 ```powershell
-robocopy "C:\Users\thoub\brooklyn-staff-app" "C:\Users\thoub\<client>-staff-app" /E /XD node_modules .git .gradle build
-cd "C:\Users\thoub\<client>-staff-app"
+robocopy "F:\Claude\restaurants\clients\Brooklyn Food\brooklyn-staff-app" "F:\Claude\restaurants\clients\<Client>\<client>-staff-app" /E /XD node_modules .git .gradle build
+cd "F:\Claude\restaurants\clients\<Client>\<client>-staff-app"
 npm install
 ```
 
@@ -99,7 +102,7 @@ Choisir : **appId** `be.<domainesansbe>.staff` (ex. `be.krustysquad.staff`),
 ### B3. Icônes = logo du client (script fourni, testé)
 
 ```bash
-node scripts/make-icons.mjs "C:\Users\thoub\<Client> Web App\public\icon-app.png" --bg "#111111"
+node scripts/make-icons.mjs "F:\Claude\restaurants\clients\<Client>\<Client> Web App\public\icon-app.png" --bg "#111111"
 ```
 Génère les 15 PNG mipmap + la couleur de fond adaptive. Le script **refuse un logo
 sans vraie transparence** (piège des PNG IA au damier peint) — dans ce cas, détourer
@@ -116,11 +119,11 @@ gh repo create Thouby17/<client>-staff-app --public --source . --push
 (Public comme brooklyn-staff-app : builds Actions illimités.)
 
 **⚠️ Obligatoire — copier les 3 secrets de signature sur le nouveau repo** (sinon le
-build échoue) : la clé permanente vit dans `C:\Users\thoub\APK-SIGNING-KEY\`
+build échoue) : la clé permanente vit dans `F:\Claude\restaurants\secrets\APK-SIGNING-KEY\`
 (UNE clé pour tous les clients — voir son LISEZMOI) :
 
 ```bash
-cd C:/Users/thoub/APK-SIGNING-KEY
+cd F:/Claude/restaurants/secrets/APK-SIGNING-KEY
 openssl base64 -A -in staff-apps-release.p12 | gh secret set KEYSTORE_BASE64 --repo Thouby17/<client>-staff-app
 gh secret set KEYSTORE_PASSWORD --repo Thouby17/<client>-staff-app --body "$(cat .password.txt)"
 gh secret set KEY_ALIAS --repo Thouby17/<client>-staff-app --body "staffapps"
@@ -181,7 +184,7 @@ l'ancien fichier.
 |---|---|---|---|---|---|
 | Brooklyn Food | `Thouby17/brooklyn-staff-app` | `be.brooklynfood.staff` | brooklynfood.be/staff-app.apk | v1.4.1 (versionCode 3) | ✅ chaîne de màj in-app validée en réel ; secours : v1.3 (staff-app-v13.apk) |
 | La Merguez Du Chef | — | — | — | — | à créer (volet A à porter d'abord) |
-| Krusty Squad | — | — | — | — | à créer (volet A à porter d'abord) |
+| Krusty Squad | `Thouby17/krustysquad-staff-app` | `be.krustysquad.staff` | krusty-squad.vercel.app/staff-app.apk | v1.1 (versionCode 2) | ✅ **Volets A + B FAITS (2026-07-09)**. Coquille créée, `server.url=https://krusty-squad.vercel.app/staff`, icône = logo Krusty Smash Burgers détouré sur #111111, secrets de signature copiés, builds cloud verts, signés clé permanente (vérifié). **v1.0** : version initiale (impression testée OK par l'utilisateur : IP bidon → « injoignable »). **v1.1 (versionCode 2)** : alarme native qui se RÉPÈTE (~20 s) jusqu'à acceptation/refus quand écran verrouillé/app en fond, muette quand l'app est au premier plan (`MainActivity.isForeground`, l'alarme du site prend le relais). APK + `staff-app-version.json` v2 déployés ENSEMBLE (Vercel READY, HTTP 200, 3 732 094 o). Secours = v1.0. Reste : tester la màj in-app + l'alarme répétée sur la tablette (utilisateur). |
 | Sun Set Burger | — | — | — | — | à créer (volet A à porter d'abord) |
 
 *Mettre ce tableau à jour à chaque nouvelle coquille ou version.*

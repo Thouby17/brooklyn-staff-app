@@ -10,7 +10,7 @@ Application Android **coquille** (Capacitor 8) qui affiche le site staff
 - **Mise à jour intégrée** (v1.4+) : l'app lit `<site>/staff-app-version.json` à
   chaque ouverture et propose « Mettre à jour » (téléchargement + installateur) —
   possible grâce à la **clé de signature permanente** (secrets KEYSTORE_* ; clé
-  dans `C:\Users\thoub\APK-SIGNING-KEY\`, commune à tous les clients).
+  dans `F:\Claude\restaurants\secrets\APK-SIGNING-KEY\`, commune à tous les clients).
 - **Bouton Retour qui ne quitte jamais l'app** ; **son web autorisé sans toucher**
   (plus de bannière « Son bloqué ») ; écran toujours allumé ; icône du client.
 

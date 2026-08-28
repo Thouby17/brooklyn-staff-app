@@ -68,6 +68,23 @@ public class OrderWatchService extends Service {
     /** Nombre de tours ratés d'affilée avant de crier « serveur injoignable ». */
     private static final int ECHECS_AVANT_ALERTE = 3; // ~1 minute
 
+    /**
+     * ⭐ LE BIP RÉPÉTÉ (v1.7, décision de l'exploitant du 28/08 — « comme Uber
+     * Eats »). La v1.6 ne sonnait qu'UNE fois par panne ; en plein coup de feu,
+     * un seul bip se rate. Tant que la panne dure, on re-sonne donc toutes les
+     * {@link #RAPPEL_PANNE_MS}, en re-publiant la même notification (même id :
+     * l'écran n'empile rien, seul le son repart).
+     * ⚠️ Borné à {@link #RAPPELS_MAX} rappels (~30 min de sonnerie) : une
+     * tablette qui hurlerait toute une nuit de panne wifi finirait éteinte ou
+     * privée de notifications — et une alarme désactivée ne protège plus rien.
+     * Après la borne, la notification « impossible à balayer » reste affichée.
+     * Le compteur repart à chaque NOUVELLE panne (et au retour du réseau).
+     */
+    private static final long RAPPEL_PANNE_MS = 60_000;
+    private static final int RAPPELS_MAX = 30;
+    private long dernierCriMs = 0;
+    private int rappelsEmis = 0;
+
     private HandlerThread thread;
     private Handler handler;
     private android.os.PowerManager.WakeLock veille;
@@ -186,6 +203,8 @@ public class OrderWatchService extends Service {
     /** Un tour a réussi : on efface l'alerte si elle était affichée. */
     private void constaterSucces() {
         echecsConsecutifs = 0;
+        rappelsEmis = 0;
+        dernierCriMs = 0;
         if (panneAffichee != null) {
             panneAffichee = null;
             try { NotificationManagerCompat.from(this).cancel(SANTE_NOTIF_ID); } catch (Exception ignored) { }
@@ -200,15 +219,30 @@ public class OrderWatchService extends Service {
      * devenue sourde est au moins aussi grave qu'une commande non vue. Et la
      * notification est `ongoing` — impossible de la balayer par mégarde en
      * essuyant l'écran.
-     * ⚠️ Elle n'est publiée qu'une fois par panne (`panneAffichee`) : re-sonner
-     * toutes les vingt secondes rendrait la tablette inutilisable, et une alarme
-     * qu'on finit par ignorer ne protège plus de rien.
+     * ⭐ v1.7 : tant que la panne dure, le son est RÉPÉTÉ toutes les
+     * {@link #RAPPEL_PANNE_MS} (borné à {@link #RAPPELS_MAX}, voir là-haut) —
+     * demande de l'exploitant, « comme Uber Eats ». La v1.6 ne sonnait qu'une
+     * fois ; en plein coup de feu, un seul bip se rate.
      */
     private void alerterPanne(String motif) {
-        if (motif.equals(panneAffichee)) return;
+        if (motif.equals(panneAffichee)) {
+            // Même panne, toujours en cours : re-sonner si l'heure est venue.
+            if (rappelsEmis >= RAPPELS_MAX) return;
+            if (System.currentTimeMillis() - dernierCriMs < RAPPEL_PANNE_MS) return;
+            rappelsEmis++;
+            dernierCriMs = System.currentTimeMillis();
+            publierNotifPanne(motif); // même id : le son repart, rien ne s'empile
+            return;
+        }
         panneAffichee = motif;
+        rappelsEmis = 0;
+        dernierCriMs = System.currentTimeMillis();
         majNotificationPermanente("⚠️ " + motif);
+        publierNotifPanne(motif);
+    }
 
+    /** Construit et publie la notification de panne (id fixe : se remplace). */
+    private void publierNotifPanne(String motif) {
         Intent open = new Intent(this, MainActivity.class);
         open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent pi = PendingIntent.getActivity(
