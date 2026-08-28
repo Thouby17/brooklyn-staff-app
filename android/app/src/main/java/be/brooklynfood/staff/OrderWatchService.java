@@ -225,24 +225,38 @@ public class OrderWatchService extends Service {
      * fois ; en plein coup de feu, un seul bip se rate.
      */
     private void alerterPanne(String motif) {
-        if (motif.equals(panneAffichee)) {
-            // Même panne, toujours en cours : re-sonner si l'heure est venue.
-            if (rappelsEmis >= RAPPELS_MAX) return;
-            if (System.currentTimeMillis() - dernierCriMs < RAPPEL_PANNE_MS) return;
-            rappelsEmis++;
-            dernierCriMs = System.currentTimeMillis();
-            publierNotifPanne(motif); // même id : le son repart, rien ne s'empile
-            return;
+        // ⭐ v1.8 (relecture du 29/08) : la cadence et la borne valent pour tout
+        // l'ÉPISODE de panne — du premier cri au retour du réseau — et non par
+        // MOTIF. En v1.7, deux motifs qui ALTERNAIENT (« Serveur injoignable »
+        // ↔ « Session expirée ») comptaient chacun pour une panne neuve :
+        // sonnerie toutes les 20 s, compteurs remis à zéro à chaque bascule —
+        // la borne de 30 rappels ne bornait plus rien. Un motif qui change met
+        // le TEXTE à jour ; il ne rend jamais droit à un cri hors cadence.
+        long maintenant = System.currentTimeMillis();
+        boolean nouvelEpisode = (panneAffichee == null);
+        boolean motifChange = !motif.equals(panneAffichee);
+        if (motifChange) {
+            panneAffichee = motif;
+            majNotificationPermanente("⚠️ " + motif);
         }
-        panneAffichee = motif;
-        rappelsEmis = 0;
-        dernierCriMs = System.currentTimeMillis();
-        majNotificationPermanente("⚠️ " + motif);
-        publierNotifPanne(motif);
+        if (nouvelEpisode) rappelsEmis = 0;
+        boolean cadenceOk = nouvelEpisode || (maintenant - dernierCriMs >= RAPPEL_PANNE_MS);
+        boolean borneOk = nouvelEpisode || rappelsEmis < RAPPELS_MAX;
+        if (cadenceOk && borneOk) {
+            rappelsEmis++;
+            dernierCriMs = maintenant;
+            publierNotifPanne(motif, false); // même id : le son repart, rien ne s'empile
+        } else if (motifChange) {
+            publierNotifPanne(motif, true); // texte à jour, SANS re-sonner
+        }
     }
 
-    /** Construit et publie la notification de panne (id fixe : se remplace). */
-    private void publierNotifPanne(String motif) {
+    /** Construit et publie la notification de panne (id fixe : se remplace).
+     *  silencieux = met le texte à jour sans redéclencher le son. */
+    private void publierNotifPanne(String motif, boolean silencieux) {
+        // ⭐ v1.8 : même plancher de volume que l'alarme de commande — une
+        // tablette au volume coupé avait une alarme de panne MUETTE (29/08).
+        if (!silencieux) remonterVolumeAlarme();
         Intent open = new Intent(this, MainActivity.class);
         open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent pi = PendingIntent.getActivity(
@@ -261,6 +275,9 @@ public class OrderWatchService extends Service {
                 .setCategory(NotificationCompat.CATEGORY_ERROR)
                 .setOngoing(true)
                 .setContentIntent(pi);
+        // Mise à jour de texte SANS son : la notification étant déjà affichée,
+        // setOnlyAlertOnce l'empêche de re-déclencher l'alarme.
+        if (silencieux) b.setOnlyAlertOnce(true);
         try {
             NotificationManagerCompat.from(this).notify(SANTE_NOTIF_ID, b.build());
         } catch (SecurityException ignored) {
@@ -421,10 +438,14 @@ public class OrderWatchService extends Service {
         }
     }
 
-    private void notifyNewOrder(JSONObject o) {
-        // Volume « anti-bêtise » : si quelqu'un a baissé le volume d'alarme de
-        // la tablette, on le remonte à 80 % minimum avant de sonner — LE grand
-        // classique du « ça ne sonne plus » en restaurant.
+    /** Plancher de volume « anti-bêtise » : si quelqu'un a baissé le volume
+     *  d'alarme de la tablette, on le remonte à 80 % minimum AVANT de sonner —
+     *  LE grand classique du « ça ne sonne plus » en restaurant.
+     *  ⭐ v1.8 : partagé entre l'alarme de COMMANDE et l'alarme de PANNE — la
+     *  relecture du 29/08 a montré qu'une tablette au volume coupé avait une
+     *  alarme hors-ligne MUETTE toute la nuit (le plancher ne s'appliquait
+     *  qu'aux commandes). */
+    private void remonterVolumeAlarme() {
         try {
             AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
             int max = am.getStreamMaxVolume(AudioManager.STREAM_ALARM);
@@ -435,6 +456,10 @@ public class OrderWatchService extends Service {
         } catch (Exception ignored) {
             // Ne pas sonner est pire que ne pas régler le volume : on continue.
         }
+    }
+
+    private void notifyNewOrder(JSONObject o) {
+        remonterVolumeAlarme();
 
         int id = o.optInt("id", 0);
         int shown = o.isNull("dailyNumber") ? id : o.optInt("dailyNumber", id);
