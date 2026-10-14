@@ -26,6 +26,10 @@ jobs:
 
       - name: Installer le SDK Android
         uses: android-actions/setup-android@v3
+        # ⚠️ 14/10/2026 : le défaut installe « tools », retiré des outils Android
+        # récents (cmdline-tools 16) → la construction échouait avant de commencer.
+        with:
+          packages: platform-tools
 
       - name: Installer les dépendances npm
         run: npm ci
