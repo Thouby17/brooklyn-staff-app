@@ -205,7 +205,7 @@ public class PrinterBridge {
                 if (!isPrinter(d)) continue;
                 if (!first) json.append(",");
                 first = false;
-                String name = d.getProductName() != null ? d.getProductName() : ("USB " + d.getDeviceId());
+                String name = nomUsb(d);
                 json.append("{\"id\":").append(d.getDeviceId())
                         .append(",\"name\":\"").append(esc(name))
                         .append("\",\"granted\":").append(manager.hasPermission(d)).append("}");
@@ -435,12 +435,91 @@ public class PrinterBridge {
         }
     }
 
+    /**
+     * ⭐ v1.9 (14/10/2026) — FABRICANTS D'IMPRIMANTES DE CAISSE, par identifiant USB.
+     *
+     * ⚠️⚠️ POURQUOI. Jusqu'à la v1.8, seul un appareil se déclarant « imprimante »
+     * au sens standard (classe USB 7) était listé. Or les imprimantes de caisse —
+     * l'Epson TM-m30II de Brooklyn en tête — se présentent souvent en classe
+     * « propre au fabricant » (0xFF) : branchée en USB sur la tablette, l'Epson
+     * n'apparaissait JAMAIS, et le staff lisait « aucune imprimante USB ».
+     * ⇒ Un appareil de ces fabricants est accepté s'il offre une sortie de
+     * données (« bulk OUT ») — c'est par elle que partent les octets ESC/POS.
+     */
+    private static final int[] FABRICANTS_CAISSE = {
+            0x04B8, // Epson (TM-m30, TM-T20, TM-T88…)
+            0x0519, // Star Micronics
+            0x1D90, // Citizen
+            0x2730, // Citizen
+            0x1504, // Bixolon
+            0x0619, // Seiko Instruments
+            0x0416, // Winbond — nombreuses imprimantes génériques (Xprinter…)
+            0x0483, // STMicro — idem
+            0x0FE6, // ICS Advent — idem
+            0x1FC9, // NXP — idem
+            0x28E9, // GD32 — idem
+    };
+
+    private static boolean fabricantDeCaisse(UsbDevice d) {
+        for (int v : FABRICANTS_CAISSE) if (d.getVendorId() == v) return true;
+        return false;
+    }
+
     private static boolean isPrinter(UsbDevice d) {
         if (d.getDeviceClass() == UsbConstants.USB_CLASS_PRINTER) return true;
         for (int i = 0; i < d.getInterfaceCount(); i++) {
             if (d.getInterface(i).getInterfaceClass() == UsbConstants.USB_CLASS_PRINTER) return true;
         }
+        // v1.9 : une imprimante de caisse en classe « fabricant », si elle a une sortie.
+        if (fabricantDeCaisse(d)) {
+            for (int i = 0; i < d.getInterfaceCount(); i++) {
+                if (bulkOut(d.getInterface(i)) != null) return true;
+            }
+        }
         return false;
+    }
+
+    /** Nom lisible, sans jamais lever (certaines versions d'Android exigent
+     *  l'autorisation pour lire le nom du produit). */
+    private static String nomUsb(UsbDevice d) {
+        String n = null;
+        try { n = d.getProductName(); } catch (Exception ignored) {}
+        if (n != null && !n.trim().isEmpty()) return n.trim();
+        if (d.getVendorId() == 0x04B8) return "Epson (USB)";
+        if (d.getVendorId() == 0x0519) return "Star (USB)";
+        return "USB " + d.getDeviceId();
+    }
+
+    /**
+     * ⭐ v1.9 — CE QUE LA TABLETTE VOIT EN USB, sans rien filtrer.
+     *
+     * Pour comprendre À DISTANCE pourquoi une imprimante n'est pas listée :
+     * le site l'envoie au journal des appareils (/dev/appareils) quand la liste
+     * des imprimantes est vide. Format compact (le journal garde 300 caractères) :
+     * « 04b8:0202 c0 [ff:bo] TM-m30II ; … » — identifiants, classe de l'appareil,
+     * puis chaque interface (classe, « bo » = sortie bulk présente), puis le nom.
+     */
+    @JavascriptInterface
+    public String diagnosticUsb() {
+        try {
+            UsbManager manager = (UsbManager) context.getSystemService(Context.USB_SERVICE);
+            if (manager == null) return "error:USB non disponible";
+            StringBuilder sb = new StringBuilder();
+            for (UsbDevice d : manager.getDeviceList().values()) {
+                if (sb.length() > 0) sb.append(" ; ");
+                sb.append(String.format("%04x:%04x c%d [", d.getVendorId(), d.getProductId(), d.getDeviceClass()));
+                for (int i = 0; i < d.getInterfaceCount(); i++) {
+                    UsbInterface it = d.getInterface(i);
+                    if (i > 0) sb.append(",");
+                    sb.append(Integer.toHexString(it.getInterfaceClass()));
+                    if (bulkOut(it) != null) sb.append(":bo");
+                }
+                sb.append("] ").append(nomUsb(d));
+            }
+            return sb.length() == 0 ? "aucun appareil USB détecté (câble OTG ? prise de charge seule ?)" : sb.toString();
+        } catch (Exception e) {
+            return "error:" + msgOf(e);
+        }
     }
 
     private static UsbDevice findUsb(UsbManager manager, int deviceId) {
@@ -454,6 +533,13 @@ public class PrinterBridge {
         for (int i = 0; i < d.getInterfaceCount(); i++) {
             UsbInterface intf = d.getInterface(i);
             if (intf.getInterfaceClass() == UsbConstants.USB_CLASS_PRINTER) return intf;
+        }
+        // v1.9 : sinon, la première interface qui a une SORTIE de données (classe
+        // « fabricant » des imprimantes de caisse). L'ancienne règle prenait
+        // aveuglément l'interface 0, qui peut ne pas en avoir.
+        for (int i = 0; i < d.getInterfaceCount(); i++) {
+            UsbInterface intf = d.getInterface(i);
+            if (bulkOut(intf) != null) return intf;
         }
         return d.getInterfaceCount() > 0 ? d.getInterface(0) : null;
     }
