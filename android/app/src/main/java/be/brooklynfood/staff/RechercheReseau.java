@@ -398,7 +398,8 @@ final class RechercheReseau {
             sb.append(ch < 0x20 || ch == 0x7f ? ' ' : ch);
         }
         String t = sb.toString().replaceAll("\\s+", " ").trim();
-        if (t.isEmpty()) return null;
+        // « localhost » : un appareil qui ne sait pas son nom ne nous l’apprend pas.
+        if (t.isEmpty() || t.equalsIgnoreCase("localhost")) return null;
         return borner(t, 80);
     }
 
