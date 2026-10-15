@@ -435,6 +435,75 @@ public class PrinterBridge {
         return RechercheBluetooth.associer(context, mac);
     }
 
+    // ─────────────── v1.11 : ÉTAT DES IMPRIMANTES ET DU BLUETOOTH ───────────────
+
+    /**
+     * ⭐ v1.11 (16/10/2026) — L'ÉTAT d'une imprimante, comme le poste Windows.
+     * Le site le lit toutes les 2 min : une imprimante réseau « hors ligne »
+     * est alors CHERCHÉE (la box a pu lui donner une autre adresse) AVANT
+     * qu'une commande ne rate — plus seulement après.
+     *  - réseau : une connexion (sans rien envoyer) ;
+     *  - USB : présente et autorisée ?
+     *  - Bluetooth : allumé et associée ? ⚠️ On ne s'y CONNECTE PAS : le
+     *    Bluetooth n'accepte qu'une connexion, le contrôle pourrait la voler à
+     *    un ticket. Au-delà, l'état reste « inconnu », jamais « prête ».
+     * @return JSON {"etat":"pret|hors-ligne|inconnu","detail"?}
+     */
+    @JavascriptInterface
+    public String printerStatus(String type, String cible, String langage) {
+        try {
+            if ("lan".equals(type)) {
+                String c = cible != null ? cible.trim() : "";
+                int deux = c.lastIndexOf(':');
+                final String hote = deux > 0 ? c.substring(0, deux) : c;
+                final int port = deux > 0 ? Integer.parseInt(c.substring(deux + 1)) : 9100;
+                if (!estReseauLocal(hote)) return refusHorsReseauLocal(hote);
+                return runWithTimeout(4, result -> {
+                    Socket s = new Socket();
+                    try {
+                        s.connect(new InetSocketAddress(hote, port), 2500);
+                        result[0] = "{\"etat\":\"pret\"}";
+                    } catch (Exception e) {
+                        result[0] = "{\"etat\":\"hors-ligne\",\"detail\":\"" + esc(msgOf(e)) + "\"}";
+                    } finally {
+                        closeQuietly(s);
+                    }
+                }, "{\"etat\":\"hors-ligne\",\"detail\":\"délai dépassé\"}");
+            }
+            if ("usb".equals(type)) {
+                UsbManager manager = (UsbManager) context.getSystemService(Context.USB_SERVICE);
+                UsbDevice d = manager != null ? findUsb(manager, Integer.parseInt(cible.trim())) : null;
+                if (d == null) return "{\"etat\":\"hors-ligne\",\"detail\":\"imprimante USB introuvable (débranchée ?)\"}";
+                if (!manager.hasPermission(d)) return "{\"etat\":\"erreur\",\"detail\":\"autorisation USB non accordée\"}";
+                return "{\"etat\":\"pret\"}";
+            }
+            if ("bluetooth".equals(type)) {
+                BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+                if (adapter == null || !adapter.isEnabled()) return "{\"etat\":\"hors-ligne\",\"detail\":\"Bluetooth désactivé\"}";
+                BluetoothDevice d = adapter.getRemoteDevice(cible.trim());
+                if (d.getBondState() != BluetoothDevice.BOND_BONDED) return "{\"etat\":\"hors-ligne\",\"detail\":\"imprimante plus associée\"}";
+                return "{\"etat\":\"inconnu\"}";
+            }
+            return "{\"etat\":\"inconnu\"}";
+        } catch (SecurityException e) {
+            return "{\"etat\":\"inconnu\",\"detail\":\"autorisation Bluetooth refusée\"}";
+        } catch (Exception e) {
+            return "{\"etat\":\"inconnu\",\"detail\":\"" + esc(msgOf(e)) + "\"}";
+        }
+    }
+
+    /** Le Bluetooth avant de chercher : allumé ? autorisé ? @return JSON {state,permission,location,canEnable} */
+    @JavascriptInterface
+    public String bluetoothState() {
+        return RechercheBluetooth.etat(context, activite);
+    }
+
+    /** Demande à Android d'allumer le Bluetooth (Android pose sa question). */
+    @JavascriptInterface
+    public String bluetoothEnable() {
+        return RechercheBluetooth.allumer(context, activite);
+    }
+
     /** La version de l'app, pour le diagnostic envoyé par le site. */
     @JavascriptInterface
     public String appVersion() {

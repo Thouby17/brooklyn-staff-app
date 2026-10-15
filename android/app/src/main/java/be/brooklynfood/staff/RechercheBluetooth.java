@@ -47,7 +47,7 @@ final class RechercheBluetooth {
     private static boolean enCours = false;
     private static String erreur = null;
     private static final Map<String, String[]> vus = new LinkedHashMap<>();
-    // vus : mac → {nom, rssi, associé ("1"/"0"), imprimante ("1"/"0")}
+    // vus : mac → {nom, rssi, associé ("1"/"0"), imprimante ("1"/"0"), type}
     private static BroadcastReceiver ecouteur = null;
 
     private RechercheBluetooth() {}
@@ -102,7 +102,9 @@ final class RechercheBluetooth {
                 if (v[0] != null) sb.append(",\"name\":\"").append(esc(v[0])).append('"');
                 if (v[1] != null) sb.append(",\"rssi\":").append(v[1]);
                 sb.append(",\"bonded\":").append("1".equals(v[2]))
-                        .append(",\"printer\":").append("1".equals(v[3])).append('}');
+                        .append(",\"printer\":").append("1".equals(v[3]));
+                if (v[4] != null) sb.append(",\"kind\":\"").append(v[4]).append('"');
+                sb.append('}');
             }
             sb.append(']');
             if (erreur != null) sb.append(",\"error\":\"").append(esc(erreur)).append('"');
@@ -167,6 +169,7 @@ final class RechercheBluetooth {
         String nom = nomAnnonce;
         boolean associe = false;
         boolean imprimante = false;
+        String type = null;
         try {
             mac = d.getAddress();
             if (nom == null) nom = d.getName();
@@ -176,19 +179,86 @@ final class RechercheBluetooth {
             // des imprimantes de tickets. Le site reconnaît aussi les autres à leur nom.
             imprimante = k != null && k.getMajorDeviceClass() == BluetoothClass.Device.Major.IMAGING
                     && (k.getDeviceClass() & 0x80) != 0;
+            type = k != null ? typeDe(k.getMajorDeviceClass()) : null;
         } catch (SecurityException e) {
             mac = d.getAddress();
         }
         if (mac == null) return;
         synchronized (VERROU) {
             String[] avant = vus.get(mac);
+            if (avant != null && avant.length < 5) avant = null;
             vus.put(mac, new String[] {
                     nom != null && !nom.trim().isEmpty() ? nom.trim() : (avant != null ? avant[0] : null),
                     rssi != null ? rssi : (avant != null ? avant[1] : null),
                     associe ? "1" : "0",
                     imprimante || (avant != null && "1".equals(avant[3])) ? "1" : "0",
+                    type != null ? type : (avant != null ? avant[4] : null),
             });
         }
+    }
+
+    /**
+     * ⭐ v1.11 — LE GENRE de chaque appareil (téléphone, enceinte…). Voir des
+     * appareils qui ne sont PAS des imprimantes prouve que la recherche marche :
+     * s'il manque l'imprimante, c'est elle qu'il faut regarder.
+     */
+    private static String typeDe(int majeure) {
+        switch (majeure) {
+            case BluetoothClass.Device.Major.PHONE: return "phone";
+            case BluetoothClass.Device.Major.COMPUTER: return "computer";
+            case BluetoothClass.Device.Major.AUDIO_VIDEO: return "audio";
+            case BluetoothClass.Device.Major.IMAGING: return "imaging";
+            case BluetoothClass.Device.Major.PERIPHERAL: return "peripheral";
+            case BluetoothClass.Device.Major.WEARABLE: return "wearable";
+            case BluetoothClass.Device.Major.HEALTH: return "health";
+            case BluetoothClass.Device.Major.TOY: return "toy";
+            case BluetoothClass.Device.Major.NETWORKING: return "network";
+            default: return "other";
+        }
+    }
+
+    // ───────────────────────── v1.11 : état et allumage ─────────────────────────
+
+    /** {"state":"on|off|absent","permission":…,"location":…,"canEnable":…} — sans rien demander. */
+    static String etat(Context ctx, WeakReference<Activity> activite) {
+        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+        if (adapter == null) return "{\"state\":\"absent\",\"permission\":true,\"location\":true,\"canEnable\":false}";
+        boolean allume;
+        try {
+            allume = adapter.isEnabled();
+        } catch (SecurityException e) {
+            allume = false;
+        }
+        boolean autorise = autorisationManquante(ctx) == null;
+        boolean localisation = Build.VERSION.SDK_INT > 30 || localisationAllumee(ctx);
+        boolean peutAllumer = activite != null && activite.get() != null;
+        return "{\"state\":\"" + (allume ? "on" : "off") + "\",\"permission\":" + autorise
+                + ",\"location\":" + localisation + ",\"canEnable\":" + peutAllumer + "}";
+    }
+
+    /**
+     * Demande à Android d'allumer le Bluetooth : Android affiche « Une
+     * application souhaite activer le Bluetooth » — on n'allume JAMAIS sans
+     * que la personne le voie. Exige BLUETOOTH_CONNECT (Android 12+), demandée
+     * au lancement de l'app ; si elle manque, on la redemande.
+     */
+    static String allumer(Context ctx, WeakReference<Activity> ref) {
+        final Activity a = ref != null ? ref.get() : null;
+        if (a == null) return "error:app native indisponible";
+        if (BluetoothAdapter.getDefaultAdapter() == null) return "error:Bluetooth non disponible sur cette tablette";
+        if (Build.VERSION.SDK_INT >= 31
+                && ContextCompat.checkSelfPermission(ctx, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            demander(ref, Manifest.permission.BLUETOOTH_CONNECT);
+            return "error:autorisation Bluetooth refusée";
+        }
+        a.runOnUiThread(() -> {
+            try {
+                a.startActivity(new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE));
+            } catch (Exception ignored) {
+                // Certaines ROM refusent : l'écran propose alors les réglages rapides.
+            }
+        });
+        return "ok";
     }
 
     // ───────────────────────── autorisations ─────────────────────────
