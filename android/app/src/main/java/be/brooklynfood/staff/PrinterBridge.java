@@ -1,5 +1,6 @@
 package be.brooklynfood.staff;
 
+import android.app.Activity;
 import android.app.PendingIntent;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
@@ -19,6 +20,7 @@ import android.webkit.JavascriptInterface;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.lang.ref.WeakReference;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -64,10 +66,13 @@ public class PrinterBridge {
     public static final String USB_PERMISSION = "be.brooklynfood.staff.USB_PERMISSION";
 
     private final Context context;
+    /** L'écran, pour DEMANDER une autorisation (v1.10) — faible : le pont lui survit. */
+    private final WeakReference<Activity> activite;
 
     public PrinterBridge(Context context) {
         // getApplicationContext() : ce pont survit à l'activité (thread réseau).
         this.context = context.getApplicationContext();
+        this.activite = new WeakReference<>(context instanceof Activity ? (Activity) context : null);
     }
 
     // ─────────────────────────── RÉSEAU (LAN) ───────────────────────────
@@ -382,6 +387,62 @@ public class PrinterBridge {
                 if (conn != null) conn.disconnect();
             }
         }, "error:délai dépassé — pas de page web sur cette imprimante");
+    }
+
+    // ─────────────── v1.10 : RECHERCHES ASYNCHRONES (avec les noms) ───────────────
+
+    /**
+     * Démarre la recherche de TOUS les appareils du réseau, avec leur nom
+     * ({@link RechercheReseau}). Rend la main tout de suite ; le site relit
+     * {@link #networkScanResults}. Une recherche déjà en cours n'est pas relancée.
+     */
+    @JavascriptInterface
+    public String networkScanStart(String subnet) {
+        final String base = subnet != null ? subnet.trim() : "";
+        if (!base.matches("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}")) {
+            return "error:sous-réseau invalide (attendu : 192.168.1)";
+        }
+        if (!estReseauLocal(base)) return refusHorsReseauLocal(base);
+        RechercheReseau.demarrer(base);
+        return "ok";
+    }
+
+    /** @return JSON {"running":…,"done":…,"total":254,"devices":[{ip,ports,name,nameSource,vendor,printer}]} */
+    @JavascriptInterface
+    public String networkScanResults() {
+        return RechercheReseau.resultats();
+    }
+
+    /** Cherche les appareils Bluetooth autour ({@link RechercheBluetooth}). */
+    @JavascriptInterface
+    public String bluetoothDiscoveryStart() {
+        try {
+            return RechercheBluetooth.demarrer(context, activite);
+        } catch (Exception e) {
+            return "error:" + msgOf(e);
+        }
+    }
+
+    /** @return JSON {"running":…,"devices":[{mac,name,rssi,bonded,printer}],"error"?} */
+    @JavascriptInterface
+    public String bluetoothDiscoveryResults() {
+        return RechercheBluetooth.resultats();
+    }
+
+    /** Associe un appareil trouvé (Android affiche sa demande de code). */
+    @JavascriptInterface
+    public String bluetoothPair(String mac) {
+        return RechercheBluetooth.associer(context, mac);
+    }
+
+    /** La version de l'app, pour le diagnostic envoyé par le site. */
+    @JavascriptInterface
+    public String appVersion() {
+        try {
+            return context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            return "?";
+        }
     }
 
     // ─────────────────────────────── OUTILS ───────────────────────────────

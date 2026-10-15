@@ -80,10 +80,16 @@
     <!-- ⭐ IMPRESSION BLUETOOTH (alignée sur la coquille de référence le
          25/08/2026). Sans elles,
          le module imprimante se lance mais ne voit AUCUN appareil, sans erreur
-         parlante. ⚠️ BLUETOOTH_SCAN n'est PAS déclarée, volontairement : le
-         code isole `cancelDiscovery()` dans son propre try/catch — sinon, sur
-         Android 12+, il jette une SecurityException qui faisait échouer TOUTE
-         l'impression avec « autorisation refusée » à tort. -->
+         parlante. ⚠️ `cancelDiscovery()` reste isolé dans son propre try/catch :
+         sans BLUETOOTH_SCAN accordée, sur Android 12+, il jette une
+         SecurityException qui faisait échouer TOUTE l'impression à tort.
+         ⭐ v1.10 : BLUETOOTH_SCAN est déclarée pour CHERCHER depuis l'app — elle
+         n'est demandée qu'au premier « Chercher autour de moi », jamais au
+         lancement. « neverForLocation » : on ne localise personne. Avant
+         Android 12, la recherche exige la localisation (d'où la ligne suivante,
+         limitée à ces versions). -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
