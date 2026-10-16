@@ -141,7 +141,9 @@ final class RechercheReseau {
                 else if (snmp[1] != null && !snmp[1].isEmpty()) { nom = snmp[1]; source = "snmp"; }
             }
         }
+        String macPage = null;
         if (ouverts.contains(80)) {
+            macPage = macDeLaPage(ip);
             String titre = titreWeb(ip);
             if (titre != null) {
                 texte = texte + " " + titre;
@@ -165,6 +167,7 @@ final class RechercheReseau {
         }
         String vendeur = (texte + " " + (nom != null ? nom : "")).trim();
         if (!vendeur.isEmpty()) sb.append(",\"vendor\":\"").append(esc(borner(vendeur, 160))).append('"');
+        if (macPage != null) sb.append(",\"mac\":\"").append(macPage).append('"');
         return sb.append(",\"printer\":").append(imprimante).append('}').toString();
     }
 
@@ -377,6 +380,75 @@ final class RechercheReseau {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    // ───────────────────────── v1.11 : la MAC écrite par l'imprimante ─────────────────────────
+
+    /**
+     * ⭐ v1.11 (17/10/2026) — L'ADRESSE MATÉRIELLE QUE L'IMPRIMANTE ÉCRIT ELLE-MÊME
+     * sur sa page de réglages. Android interdit aux applications de lire la
+     * table ARP : c'est le seul moyen, pour une tablette, de reconnaître une
+     * imprimante SANS NOM dont la box a changé l'adresse (vu sur l'imprimante
+     * achetée pour Krusty Koekelberg, module « J-Speed » : page /ip_info.htm).
+     * ⚠️ Ces petits serveurs répondent en HTTP/0.9 (aucun en-tête) : la lecture
+     * passe par une simple connexion, pas par HttpURLConnection, qui les refuse.
+     * Rien trouvé = rien rendu : jamais une MAC devinée.
+     */
+    private static String macDeLaPage(String ip) {
+        // Ces petits serveurs ratent une requête sur deux juste après un redémarrage : un 2e essai.
+        String accueil = lirePage(ip, "/");
+        if (accueil == null || accueil.length() < 300) accueil = lirePage(ip, "/");
+        String mac = premiereMac(accueil);
+        if (mac == null && accueil != null && accueil.contains("ip_info.htm")) mac = premiereMac(lirePage(ip, "/ip_info.htm"));
+        return mac;
+    }
+
+    /** Une page, lue en HTTP/1.0 brut, 32 Ko au plus. */
+    private static String lirePage(String ip, String chemin) {
+        Socket s = new Socket();
+        try {
+            s.connect(new InetSocketAddress(ip, 80), DELAI_PORT_MS * 2);
+            s.setSoTimeout(DELAI_NOM_MS * 2);
+            s.getOutputStream().write(("GET " + chemin + " HTTP/1.0\r\nHost: " + ip + "\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
+            InputStream in = s.getInputStream();
+            byte[] buf = new byte[32768];
+            int n = 0, r;
+            while (n < buf.length && (r = in.read(buf, n, buf.length - n)) > 0) n += r;
+            return new String(buf, 0, n, StandardCharsets.ISO_8859_1);
+        } catch (Exception e) {
+            return null;
+        } finally {
+            try { s.close(); } catch (Exception ignored) {}
+        }
+    }
+
+    /**
+     * La première adresse matérielle d'un texte (« 00-61-A3-48-24-8E » ou
+     * « 00:61:a3:48:24:8e »), rendue en minuscules avec des « : ». Écrit sans
+     * expression régulière, exprès : un motif à antislashs s'abîme en passant
+     * par les outils qui écrivent ce fichier.
+     */
+    static String premiereMac(String t) {
+        if (t == null) return null;
+        for (int i = 0; i + 17 <= t.length(); i++) {
+            if (i > 0 && hexa(t.charAt(i - 1))) continue;
+            boolean ok = true;
+            char sep = t.charAt(i + 2);
+            if (sep != '-' && sep != ':') continue;
+            for (int k = 0; k < 6 && ok; k++) {
+                int p = i + k * 3;
+                ok = hexa(t.charAt(p)) && hexa(t.charAt(p + 1)) && (k == 5 || t.charAt(p + 2) == sep);
+            }
+            if (!ok || (i + 17 < t.length() && hexa(t.charAt(i + 17)))) continue;
+            String mac = t.substring(i, i + 17).replace('-', ':').toLowerCase(Locale.ROOT);
+            if (mac.equals("00:00:00:00:00:00") || mac.equals("ff:ff:ff:ff:ff:ff")) continue;
+            return mac;
+        }
+        return null;
+    }
+
+    private static boolean hexa(char c) {
+        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
     }
 
     // ───────────────────────── outils ─────────────────────────
